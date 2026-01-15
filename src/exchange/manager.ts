@@ -38,8 +38,16 @@ export function clearExchangeCache(): void {
 
 // Default exchange and market type
 // 默认交易所和市场类型
-export const DEFAULT_EXCHANGE = process.env.DEFAULT_EXCHANGE || 'binance';
-export const DEFAULT_MARKET_TYPE = process.env.DEFAULT_MARKET_TYPE || 'spot';
+//
+// NOTE: These defaults are intentionally read dynamically from process.env so that
+// runtime configuration tools (e.g. set-market-type) can take effect without restart.
+export function getDefaultExchange(): string {
+  return (process.env.DEFAULT_EXCHANGE || 'binance').toLowerCase();
+}
+
+export function getDefaultMarketType(): string {
+  return (process.env.DEFAULT_MARKET_TYPE || 'spot').toLowerCase();
+}
 
 // Market types enum
 // 市场类型枚举
@@ -49,6 +57,48 @@ export enum MarketType {
   SWAP = 'swap',
   OPTION = 'option',
   MARGIN = 'margin'
+}
+
+function isInlineCredentialsAllowed(): boolean {
+  return (process.env.ALLOW_INLINE_CREDENTIALS || '').toLowerCase() === 'true';
+}
+
+function normalizeMarketTypeForExchange(exchangeId: string, marketType: string): string {
+  const id = exchangeId.toLowerCase();
+  const type = (marketType || '').toLowerCase();
+
+  // CCXT binance uses legacy "future"/"delivery" instead of "swap"
+  if (id === 'binance' || id === 'binanceusdm') {
+    if (type === MarketType.SWAP) return MarketType.FUTURE;
+  }
+
+  if (id === 'binancecoinm') {
+    if (type === MarketType.SWAP) return MarketType.FUTURE;
+  }
+
+  return type;
+}
+
+function mapCcxtDefaultType(exchangeId: string, marketType: string): string {
+  const id = exchangeId.toLowerCase();
+  const type = marketType.toLowerCase();
+
+  if (id === 'binance') {
+    if (type === MarketType.FUTURE) return 'future';   // USDT-margined futures/perps (fapi)
+    if (type === MarketType.OPTION) return 'option';
+    if (type === MarketType.MARGIN) return 'margin';
+    return 'spot';
+  }
+
+  if (id === 'binanceusdm') {
+    return 'future';
+  }
+
+  if (id === 'binancecoinm') {
+    return 'delivery';
+  }
+
+  return type;
 }
 
 /**
@@ -103,7 +153,7 @@ function formatProxyUrl(config: { url: string; username?: string; password?: str
  * @returns Exchange instance
  */
 export function getExchange(exchangeId?: string): ccxt.Exchange {
-  return getExchangeWithMarketType(exchangeId, DEFAULT_MARKET_TYPE as MarketType);
+  return getExchangeWithMarketType(exchangeId);
 }
 
 /**
@@ -112,9 +162,10 @@ export function getExchange(exchangeId?: string): ccxt.Exchange {
  * @param marketType Market type (spot, future, etc.)
  * @returns Exchange instance
  */
-export function getExchangeWithMarketType(exchangeId?: string, marketType: MarketType | string = MarketType.SPOT): ccxt.Exchange {
-  const id = (exchangeId || DEFAULT_EXCHANGE).toLowerCase();
-  const type = marketType || DEFAULT_MARKET_TYPE;
+export function getExchangeWithMarketType(exchangeId?: string, marketType?: MarketType | string): ccxt.Exchange {
+  const id = (exchangeId || getDefaultExchange()).toLowerCase();
+  const requestedType = (marketType || getDefaultMarketType()).toString().toLowerCase();
+  const type = normalizeMarketTypeForExchange(id, requestedType);
   
   // Create a cache key that includes both exchange ID and market type
   const cacheKey = `${id}:${type}`;
@@ -148,7 +199,7 @@ export function getExchangeWithMarketType(exchangeId?: string, marketType: Marke
       
       // Configure market type specifics
       if (type !== MarketType.SPOT) {
-        options.options.defaultType = type;
+        options.options.defaultType = mapCcxtDefaultType(id, type);
       }
       
       // Add proxy configuration if enabled
@@ -187,45 +238,67 @@ export function getExchangeWithMarketType(exchangeId?: string, marketType: Marke
  */
 export function getExchangeWithCredentials(
   exchangeId: string,
-  apiKey: string,
-  secret: string,
-  marketType: MarketType | string = MarketType.SPOT,
+  apiKey?: string,
+  secret?: string,
+  marketType?: MarketType | string,
   passphrase?: string
 ): ccxt.Exchange {
   try {
-    if (!SUPPORTED_EXCHANGES.includes(exchangeId)) {
+    const id = exchangeId.toLowerCase();
+
+    if (!SUPPORTED_EXCHANGES.includes(id)) {
       throw new Error(`Exchange '${exchangeId}' not supported`);
     }
     
-    const type = marketType || DEFAULT_MARKET_TYPE;
+    const requestedType = (marketType || getDefaultMarketType()).toString().toLowerCase();
+    const type = normalizeMarketTypeForExchange(id, requestedType);
+
+    const hasInlineCredentials = !!(apiKey || secret || passphrase);
+    if (hasInlineCredentials && !isInlineCredentialsAllowed()) {
+      throw new Error(
+        `Inline credentials are disabled. Set ${id.toUpperCase()}_API_KEY / ${id.toUpperCase()}_SECRET (and optional ${id.toUpperCase()}_PASSPHRASE) in environment variables, ` +
+        `or set ALLOW_INLINE_CREDENTIALS=true to allow passing credentials as tool parameters.`
+      );
+    }
+
+    const resolvedApiKey = apiKey || process.env[`${id.toUpperCase()}_API_KEY`];
+    const resolvedSecret = secret || process.env[`${id.toUpperCase()}_SECRET`];
+    const resolvedPassphrase = passphrase || process.env[`${id.toUpperCase()}_PASSPHRASE`];
+
+    if (!resolvedApiKey || !resolvedSecret) {
+      throw new Error(
+        `Missing API credentials for ${id}. Set ${id.toUpperCase()}_API_KEY and ${id.toUpperCase()}_SECRET in environment variables ` +
+        `(recommended), or set ALLOW_INLINE_CREDENTIALS=true and pass them as tool parameters.`
+      );
+    }
     
     // Configure options with possible proxy
     const options: any = {
-      apiKey,
-      secret,
+      apiKey: resolvedApiKey,
+      secret: resolvedSecret,
       enableRateLimit: true,
       options: {}
     };
     
     // Add passphrase if provided (required for exchanges like KuCoin)
-    if (passphrase) {
-      options.password = passphrase;
+    if (resolvedPassphrase) {
+      options.password = resolvedPassphrase;
     }
     
     // Configure market type specifics
     if (type !== MarketType.SPOT) {
-      options.options.defaultType = type;
+      options.options.defaultType = mapCcxtDefaultType(id, type);
     }
     
     // Add proxy configuration if enabled
     const proxyConfig = getProxyConfig();
     if (proxyConfig) {
       options.proxy = formatProxyUrl(proxyConfig);
-      log(LogLevel.INFO, `Using proxy for ${exchangeId} (${type}) with custom credentials`);
+      log(LogLevel.INFO, `Using proxy for ${id} (${type}) with custom credentials`);
     }
     
     // Use indexed access to create exchange instance
-    const ExchangeClass = ccxt[exchangeId as keyof typeof ccxt];
+    const ExchangeClass = ccxt[id as keyof typeof ccxt];
     return new (ExchangeClass as any)(options);
   } catch (error) {
     log(LogLevel.ERROR, `Failed to initialize exchange ${exchangeId} with credentials: ${error instanceof Error ? error.message : String(error)}`);

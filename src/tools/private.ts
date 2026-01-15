@@ -16,9 +16,9 @@ export function registerPrivateTools(server: McpServer) {
   // 账户余额
   server.tool("account-balance", "Get your account balance from a crypto exchange", {
     exchange: z.string().describe("Exchange ID (e.g., binance, coinbase)"),
-    apiKey: z.string().describe("API key for authentication"),
-    secret: z.string().describe("API secret for authentication"),
-    passphrase: z.string().optional().describe("Passphrase for authentication (required for some exchanges like KuCoin)"),
+    apiKey: z.string().optional().describe("API key for authentication (recommended: use environment variables instead)"),
+    secret: z.string().optional().describe("API secret for authentication (recommended: use environment variables instead)"),
+    passphrase: z.string().optional().describe("Passphrase for authentication (recommended: use environment variables instead)"),
     marketType: z.enum(["spot", "future", "swap", "option", "margin"]).optional().describe("Market type (default: spot)")
   }, async ({ exchange, apiKey, secret, passphrase, marketType }) => {
     try {
@@ -64,9 +64,9 @@ export function registerPrivateTools(server: McpServer) {
     symbol: z.string().describe("Trading pair symbol (e.g., BTC/USDT)"),
     side: z.enum(['buy', 'sell']).describe("Order side: buy or sell"),
     amount: z.number().positive().describe("Amount to buy/sell"),
-    apiKey: z.string().describe("API key for authentication"),
-    secret: z.string().describe("API secret for authentication"),
-    passphrase: z.string().optional().describe("Passphrase for authentication (required for some exchanges like KuCoin)"),
+    apiKey: z.string().optional().describe("API key for authentication (recommended: use environment variables instead)"),
+    secret: z.string().optional().describe("API secret for authentication (recommended: use environment variables instead)"),
+    passphrase: z.string().optional().describe("Passphrase for authentication (recommended: use environment variables instead)"),
     marketType: z.enum(["spot", "future", "swap", "option", "margin"]).optional().describe("Market type (default: spot)")
   }, async ({ exchange, symbol, side, amount, apiKey, secret, passphrase, marketType }) => {
     try {
@@ -103,9 +103,9 @@ export function registerPrivateTools(server: McpServer) {
     exchange: z.string().describe("Exchange ID (e.g., binance, bybit)"),
     symbol: z.string().describe("Trading pair symbol (e.g., BTC/USDT)"),
     leverage: z.number().positive().describe("Leverage value"),
-    apiKey: z.string().describe("API key for authentication"),
-    secret: z.string().describe("API secret for authentication"),
-    passphrase: z.string().optional().describe("Passphrase for authentication (required for some exchanges like KuCoin)"),
+    apiKey: z.string().optional().describe("API key for authentication (recommended: use environment variables instead)"),
+    secret: z.string().optional().describe("API secret for authentication (recommended: use environment variables instead)"),
+    passphrase: z.string().optional().describe("Passphrase for authentication (recommended: use environment variables instead)"),
     marketType: z.enum(["future", "swap"]).default("future").describe("Market type (default: future)")
   }, async ({ exchange, symbol, leverage, apiKey, secret, passphrase, marketType }) => {
     try {
@@ -142,9 +142,9 @@ export function registerPrivateTools(server: McpServer) {
     exchange: z.string().describe("Exchange ID (e.g., binance, bybit)"),
     symbol: z.string().describe("Trading pair symbol (e.g., BTC/USDT)"),
     marginMode: z.enum(["cross", "isolated"]).describe("Margin mode: cross or isolated"),
-    apiKey: z.string().describe("API key for authentication"),
-    secret: z.string().describe("API secret for authentication"),
-    passphrase: z.string().optional().describe("Passphrase for authentication (required for some exchanges like KuCoin)"),
+    apiKey: z.string().optional().describe("API key for authentication (recommended: use environment variables instead)"),
+    secret: z.string().optional().describe("API secret for authentication (recommended: use environment variables instead)"),
+    passphrase: z.string().optional().describe("Passphrase for authentication (recommended: use environment variables instead)"),
     marketType: z.enum(["future", "swap"]).default("future").describe("Market type (default: future)")
   }, async ({ exchange, symbol, marginMode, apiKey, secret, passphrase, marketType }) => {
     try {
@@ -183,9 +183,9 @@ export function registerPrivateTools(server: McpServer) {
     side: z.enum(['buy', 'sell']).describe("Order side: buy or sell"),
     amount: z.number().positive().describe("Amount to buy/sell"),
     params: z.record(z.any()).optional().describe("Additional order parameters"),
-    apiKey: z.string().describe("API key for authentication"),
-    secret: z.string().describe("API secret for authentication"),
-    passphrase: z.string().optional().describe("Passphrase for authentication (required for some exchanges like KuCoin)"),
+    apiKey: z.string().optional().describe("API key for authentication (recommended: use environment variables instead)"),
+    secret: z.string().optional().describe("API secret for authentication (recommended: use environment variables instead)"),
+    passphrase: z.string().optional().describe("Passphrase for authentication (recommended: use environment variables instead)"),
     marketType: z.enum(["future", "swap"]).default("future").describe("Market type (default: future)")
   }, async ({ exchange, symbol, side, amount, params, apiKey, secret, passphrase, marketType }) => {
     try {

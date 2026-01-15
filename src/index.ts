@@ -25,6 +25,7 @@ console.debug = (...args) => console.error('[DEBUG]', ...args);
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { readFile } from "node:fs/promises";
 import * as ccxt from 'ccxt';
 import dotenv from 'dotenv';
 
@@ -38,16 +39,43 @@ import { registerAllTools } from './tools/index.js';
 // 加载环境变量
 dotenv.config();
 
+// Configure logging from environment
+// 从环境变量配置日志级别
+if (process.env.LOG_LEVEL) {
+  setLogLevel(process.env.LOG_LEVEL);
+}
+
+const SERVER_VERSION = process.env.npm_package_version || "1.2.2";
+
 // Create MCP server
 // 创建MCP服务器
 const server = new McpServer({
   name: "CCXT MCP Server",
-  version: "1.1.0",
+  version: SERVER_VERSION,
   capabilities: {
     resources: {},
     tools: {}
   }
 });
+
+const INDICATORS = {
+  "ma-band-filter-crypto-optimized": {
+    title: "波段过滤器 V78+Crypto",
+    filename: "均线波段过滤器_加密货币优化版.pine",
+    language: "pinescript",
+    version: "v5"
+  },
+  "divergence-multi-indicator": {
+    title: "多指标背离检测器",
+    filename: "背离.pine",
+    language: "pinescript",
+    version: "v4"
+  }
+} as const;
+
+function getIndicatorFileUrl(filename: string): URL {
+  return new URL(`../assets/indicators/${filename}`, import.meta.url);
+}
 
 // Resource: Exchanges list
 // 资源：交易所列表
@@ -59,6 +87,61 @@ server.resource("exchanges", "ccxt://exchanges", async (uri) => {
     }]
   };
 });
+
+// Resource: Indicators list
+// 资源：指标列表
+server.resource("indicators", "ccxt://indicators", async (uri) => {
+  const indicators = Object.entries(INDICATORS).map(([id, info]) => ({
+    id,
+    title: info.title,
+    language: info.language,
+    version: info.version,
+    uri: `ccxt://indicators/${id}`
+  }));
+
+  return {
+    contents: [{
+      uri: uri.href,
+      text: JSON.stringify(indicators, null, 2)
+    }]
+  };
+});
+
+// Resource template: Indicator source
+// 资源模板：指标源码
+server.resource(
+  "indicator",
+  new ResourceTemplate("ccxt://indicators/{id}", { list: undefined }),
+  async (uri, params) => {
+    try {
+      const id = params.id as string;
+      const info = (INDICATORS as Record<string, (typeof INDICATORS)[keyof typeof INDICATORS]>)[id];
+      if (!info) {
+        return {
+          contents: [{
+            uri: uri.href,
+            text: `Unknown indicator id: ${id}`
+          }]
+        };
+      }
+
+      const source = await readFile(getIndicatorFileUrl(info.filename), "utf8");
+      return {
+        contents: [{
+          uri: uri.href,
+          text: source
+        }]
+      };
+    } catch (error) {
+      return {
+        contents: [{
+          uri: uri.href,
+          text: `Error fetching indicator: ${error instanceof Error ? error.message : String(error)}`
+        }]
+      };
+    }
+  }
+);
 
 // Resource template: Markets
 // 资源模板：市场

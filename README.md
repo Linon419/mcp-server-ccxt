@@ -2,9 +2,9 @@
 
 <img src="assets/ccxt-logo.png" alt="CCXT Logo" width="100" height="100"/>
 
-![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)
+![Version](https://img.shields.io/badge/version-1.2.2-blue.svg)
 [![MCP Standard](https://img.shields.io/badge/MCP-Standard-green.svg)](https://www.modelcontextprotocol.org/)
-[![CCXT](https://img.shields.io/badge/CCXT-4.0.0-orange.svg)](https://github.com/ccxt/ccxt)
+[![CCXT](https://img.shields.io/badge/CCXT-4.4.71-orange.svg)](https://github.com/ccxt/ccxt)
 [![smithery badge](https://smithery.ai/badge/@doggybee/mcp-server-ccxt)](https://smithery.ai/server/@doggybee/mcp-server-ccxt)
 
 High-performance cryptocurrency exchange integration using MCP (Model Context Protocol) and CCXT.
@@ -109,6 +109,10 @@ npm start
    KUCOIN_API_KEY=your_kucoin_api_key
    KUCOIN_SECRET=your_kucoin_secret
    KUCOIN_PASSPHRASE=your_kucoin_passphrase
+
+   # Security (recommended)
+   # Keep this false and use env vars for credentials instead of passing secrets as tool parameters
+   ALLOW_INLINE_CREDENTIALS=false
    
    # Proxy configuration (optional)
    USE_PROXY=false
@@ -202,6 +206,22 @@ Here are some example queries you can use with the MCP server:
 - `get-exchange-info`: Get exchange information and status
 - `get-leverage-tiers`: Get futures leverage tiers
 - `get-funding-rates`: Get current funding rates
+- `get-open-interest`: Get Binance USD-M open interest (Binance `/fapi/v1/openInterest`)
+- `bsc-analyzer-healthcheck`: Check local Python/web3 and optional RPC connectivity
+- `bsc-volume-analyze`: Analyze BSC token buy/sell volume vs WBNB (requires local Python + `web3`)
+- `orderbook-healthcheck`: Check local Python + `aiohttp` for the bundled orderbook collector
+- `orderbook-start-collector`: Start bundled orderbook collector (writes `latest.json` + `orderbook.db`)
+- `orderbook-stop-collector`: Stop bundled orderbook collector (if started via this server)
+- `orderbook-status`: Check collector status (based on `latest.json`)
+- `orderbook-wall-map`: Get wall map (support/resistance)
+- `orderbook-ofi`: Get OFI signal (order flow imbalance)
+- `orderbook-orderbook`: Get best bid/ask + spread
+- `orderbook-real-walls`: Get validated real walls (4h/1h)
+- `orderbook-check-signal`: Combine wall proximity + OFI into a simple signal
+- `orderbook-history`: Get basic history stats (requires `orderbook.db`)
+- `orderbook-collector-logs`: Tail recent collector logs (if started via this server)
+- `band-filter-osc-series`: Compute 波段过滤器 osc series (default 15m/300) from the bundled Pine indicator logic
+- `tg-notify`: Send a Telegram message (manual trigger)
 - `get-positions`: Get open positions information
 - `get-open-orders`: Get all open orders
 - `get-order-history`: Get order history
@@ -229,6 +249,16 @@ Here are some example queries you can use with the MCP server:
 - `set-market-type`: Set default market type
 - `set-default-exchange`: Change the default exchange
 - `system-info`: Get system and environment information
+
+## MCP Resources
+
+- `ccxt://exchanges`: Supported exchanges list
+- `ccxt://indicators`: Available indicator ids
+- `ccxt://indicators/ma-band-filter-crypto-optimized`: Pine Script source
+
+## On-chain Notes
+
+- If you use a rate-limited public RPC, prefer a dedicated provider (e.g., GetBlock) and set `BSC_RPC_URL` in env, or pass `rpcUrl` to `bsc-volume-analyze`.
 
 ## Performance Optimizations
 

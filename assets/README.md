@@ -5,6 +5,7 @@ This directory contains static assets for the CCXT MCP Server project.
 ## Contents
 
 - `ccxt-logo.png`: The CCXT logo used in the README file
+- `indicators/均线波段过滤器_加密货币优化版.pine`: A Pine Script indicator exposed via MCP resources
 
 ## Note
 

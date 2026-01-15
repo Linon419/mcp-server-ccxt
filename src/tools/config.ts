@@ -10,6 +10,21 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { log, LogLevel } from '../utils/logging.js';
 import { getProxyConfig, clearExchangeCache } from '../exchange/manager.js';
 
+function redactUrlUserInfo(rawUrl: string): string {
+  if (!rawUrl) return rawUrl;
+
+  try {
+    const url = new URL(rawUrl);
+    if (url.username || url.password) {
+      url.username = url.username ? '***' : '';
+      url.password = url.password ? '***' : '';
+    }
+    return url.toString();
+  } catch {
+    return rawUrl.replace(/^(https?|socks[45]):\/\/([^\/@]+):([^\/@]+)@/i, '$1://***:***@');
+  }
+}
+
 /**
  * Register configuration tools with the MCP server
  * @param server MCP server instance
@@ -29,7 +44,7 @@ export function registerConfigTools(server: McpServer) {
           type: "text",
           text: JSON.stringify({
             enabled: useProxy,
-            url: proxyUrl,
+            url: redactUrlUserInfo(proxyUrl),
             username: proxyUsername,
             isConfigured: useProxy && !!proxyUrl
           }, null, 2)

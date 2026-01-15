@@ -1,0 +1,2 @@
+# Preserve Pine Script indicators byte-for-byte (no line-ending conversion)
+assets/indicators/*.pine -text

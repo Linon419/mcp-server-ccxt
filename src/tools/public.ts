@@ -7,10 +7,44 @@
  */
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getExchange, getExchangeWithMarketType, validateSymbol, SUPPORTED_EXCHANGES, MarketType } from '../exchange/manager.js';
+import { getDefaultMarketType, getExchange, getExchangeWithMarketType, validateSymbol, SUPPORTED_EXCHANGES, MarketType } from '../exchange/manager.js';
 import { getCachedData } from '../utils/cache.js';
 import { rateLimiter } from '../utils/rate-limiter.js';
 import { log, LogLevel } from '../utils/logging.js';
+import { computeMaBandOscSeries } from '../utils/indicators/ma-band-osc.js';
+
+async function resolveBinanceMarketId(ex: any, symbol: string): Promise<string> {
+  const raw = symbol.trim().toUpperCase();
+  if (!raw) throw new Error('symbol is required');
+
+  if (!raw.includes('/')) {
+    return raw.replace(/[^A-Z0-9]/g, '');
+  }
+
+  await ex.loadMarkets();
+
+  try {
+    const market = ex.market(raw);
+    return (market?.id || raw).toString();
+  } catch {
+    // ignore and try fallback formats
+  }
+
+  if (!raw.includes(':')) {
+    const [base, quote] = raw.split('/');
+    if (base && quote) {
+      const alt = `${base}/${quote}:${quote}`;
+      try {
+        const market = ex.market(alt);
+        return (market?.id || alt).toString();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return raw.replace(/[^A-Z0-9]/g, '');
+}
 
 export function registerPublicTools(server: McpServer) {
   // List supported exchanges
@@ -35,10 +69,9 @@ export function registerPublicTools(server: McpServer) {
   }, async ({ exchange, symbol, marketType }) => {
     try {
       return await rateLimiter.execute(exchange, async () => {
-        const ex = marketType 
-          ? getExchangeWithMarketType(exchange, marketType)
-          : getExchange(exchange);
-        const cacheKey = `ticker:${exchange}:${marketType || 'spot'}:${symbol}`;
+        const effectiveMarketType = marketType || getDefaultMarketType();
+        const ex = getExchangeWithMarketType(exchange, effectiveMarketType);
+        const cacheKey = `ticker:${exchange}:${effectiveMarketType}:${symbol}`;
         
         const ticker = await getCachedData(cacheKey, async () => {
           log(LogLevel.INFO, `Fetching ticker for ${symbol} on ${exchange}`);
@@ -73,10 +106,9 @@ export function registerPublicTools(server: McpServer) {
   }, async ({ exchange, symbols, marketType }) => {
     try {
       return await rateLimiter.execute(exchange, async () => {
-        const ex = marketType 
-          ? getExchangeWithMarketType(exchange, marketType)
-          : getExchange(exchange);
-        const cacheKey = `tickers:${exchange}:${marketType || 'spot'}:${symbols.join(',')}`;
+        const effectiveMarketType = marketType || getDefaultMarketType();
+        const ex = getExchangeWithMarketType(exchange, effectiveMarketType);
+        const cacheKey = `tickers:${exchange}:${effectiveMarketType}:${symbols.join(',')}`;
         
         const tickers = await getCachedData(cacheKey, async () => {
           log(LogLevel.INFO, `Batch fetching tickers for ${symbols.length} symbols on ${exchange}`);
@@ -111,8 +143,9 @@ export function registerPublicTools(server: McpServer) {
   }, async ({ exchange, symbol, limit }) => {
     try {
       return await rateLimiter.execute(exchange, async () => {
-        const ex = getExchange(exchange);
-        const cacheKey = `orderbook:${exchange}:${symbol}:${limit}`;
+        const effectiveMarketType = getDefaultMarketType();
+        const ex = getExchangeWithMarketType(exchange, effectiveMarketType);
+        const cacheKey = `orderbook:${exchange}:${effectiveMarketType}:${symbol}:${limit}`;
         
         const orderbook = await getCachedData(cacheKey, async () => {
           log(LogLevel.INFO, `Fetching orderbook for ${symbol} on ${exchange}, depth: ${limit}`);
@@ -148,8 +181,9 @@ export function registerPublicTools(server: McpServer) {
   }, async ({ exchange, symbol, timeframe, limit }) => {
     try {
       return await rateLimiter.execute(exchange, async () => {
-        const ex = getExchange(exchange);
-        const cacheKey = `ohlcv:${exchange}:${symbol}:${timeframe}:${limit}`;
+        const effectiveMarketType = getDefaultMarketType();
+        const ex = getExchangeWithMarketType(exchange, effectiveMarketType);
+        const cacheKey = `ohlcv:${exchange}:${effectiveMarketType}:${symbol}:${timeframe}:${limit}`;
         
         const ohlcv = await getCachedData(cacheKey, async () => {
           log(LogLevel.INFO, `Fetching OHLCV for ${symbol} on ${exchange}, timeframe: ${timeframe}, limit: ${limit}`);
@@ -184,8 +218,9 @@ export function registerPublicTools(server: McpServer) {
   }, async ({ exchange, symbol, limit }) => {
     try {
       return await rateLimiter.execute(exchange, async () => {
-        const ex = getExchange(exchange);
-        const cacheKey = `trades:${exchange}:${symbol}:${limit}`;
+        const effectiveMarketType = getDefaultMarketType();
+        const ex = getExchangeWithMarketType(exchange, effectiveMarketType);
+        const cacheKey = `trades:${exchange}:${effectiveMarketType}:${symbol}:${limit}`;
         
         const trades = await getCachedData(cacheKey, async () => {
           log(LogLevel.INFO, `Fetching trades for ${symbol} on ${exchange}, limit: ${limit}`);
@@ -220,8 +255,9 @@ export function registerPublicTools(server: McpServer) {
   }, async ({ exchange, page, pageSize }) => {
     try {
       return await rateLimiter.execute(exchange, async () => {
-        const ex = getExchange(exchange);
-        const cacheKey = `markets:${exchange}`;
+        const effectiveMarketType = getDefaultMarketType();
+        const ex = getExchangeWithMarketType(exchange, effectiveMarketType);
+        const cacheKey = `markets:${exchange}:${effectiveMarketType}`;
         
         const allMarkets = await getCachedData(cacheKey, async () => {
           log(LogLevel.INFO, `Fetching all markets for ${exchange}`);
@@ -266,10 +302,9 @@ export function registerPublicTools(server: McpServer) {
   }, async ({ exchange, marketType }) => {
     try {
       return await rateLimiter.execute(exchange, async () => {
-        const ex = marketType 
-          ? getExchangeWithMarketType(exchange, marketType)
-          : getExchange(exchange);
-        const cacheKey = `status:${exchange}:${marketType || 'spot'}`;
+        const effectiveMarketType = marketType || getDefaultMarketType();
+        const ex = getExchangeWithMarketType(exchange, effectiveMarketType);
+        const cacheKey = `status:${exchange}:${effectiveMarketType}`;
         
         const info = await getCachedData(cacheKey, async () => {
           log(LogLevel.INFO, `Fetching status information for ${exchange}`);
@@ -376,6 +411,121 @@ export function registerPublicTools(server: McpServer) {
       };
     }
   });
+
+  // Get Binance USD-M open interest (fapi /openInterest)
+  // 获取币安 USD-M 合约持仓量（Open Interest）
+  server.tool("get-open-interest", "Get Binance USD-M open interest (/fapi/v1/openInterest)", {
+    exchange: z.string().describe("Exchange ID (must be binance or binanceusdm)"),
+    symbol: z.string().describe("Symbol (e.g., BTC/USDT, BTC/USDT:USDT, or BTCUSDT)")
+  }, async ({ exchange, symbol }) => {
+    const exchangeId = exchange.toLowerCase();
+    if (exchangeId !== 'binance' && exchangeId !== 'binanceusdm') {
+      return {
+        content: [{
+          type: "text",
+          text: "Error: get-open-interest currently supports only Binance USD-M (exchange: binance or binanceusdm)."
+        }],
+        isError: true
+      };
+    }
+
+    try {
+      return await rateLimiter.execute(exchangeId, async () => {
+        const ex: any = getExchangeWithMarketType(exchangeId, 'future');
+        const cacheKey = `open_interest:${exchangeId}:future:${symbol}`;
+
+        const oi = await getCachedData(cacheKey, async () => {
+          const marketId = await resolveBinanceMarketId(ex, symbol);
+          log(LogLevel.INFO, `Fetching open interest for ${marketId} on ${exchangeId} (fapi)`);
+          return await ex.fapiPublicGetOpenInterest({ symbol: marketId });
+        }, 10_000);
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(oi, null, 2)
+          }]
+        };
+      });
+    } catch (error) {
+      log(LogLevel.ERROR, `Error fetching open interest: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        content: [{
+          type: "text",
+          text: `Error: ${error instanceof Error ? error.message : String(error)}`
+        }],
+        isError: true
+      };
+    }
+  });
+
+  const bandFilterOscSchema = {
+    exchange: z.string().describe("Exchange ID (e.g., binance)"),
+    symbol: z.string().describe("Trading pair symbol (e.g., BTC/USDT or BTC/USDT:USDT for derivatives)"),
+    timeframe: z.string().optional().default("15m").describe("Timeframe (default: 15m)"),
+    limit: z.number().int().positive().optional().default(300).describe("Number of candles to return (default: 300, max: 1000)"),
+    marketType: z.enum(["spot", "future", "swap", "option", "margin"]).optional().describe("Market type (default: from DEFAULT_MARKET_TYPE)"),
+    cacheTtlMs: z.number().int().positive().optional().default(30000).describe("Cache TTL in ms (default: 30000)")
+  };
+
+  const bandFilterOscHandler = async ({ exchange, symbol, timeframe, limit, marketType, cacheTtlMs }: any) => {
+    try {
+      return await rateLimiter.execute(exchange, async () => {
+        const effectiveMarketType = (marketType || getDefaultMarketType()) as any;
+        const ex: any = getExchangeWithMarketType(exchange, effectiveMarketType);
+
+        const safeLimit = Math.min(Math.max(1, limit), 1000);
+        const warmup = Math.min(500, Math.max(0, 1000 - safeLimit));
+        const fetchLimit = Math.min(1000, safeLimit + warmup);
+        const safeCacheTtlMs = Math.min(Math.max(1000, cacheTtlMs), 300000);
+
+        const cacheKey = `band_filter_osc:${exchange}:${effectiveMarketType}:${symbol}:${timeframe}:${safeLimit}:${fetchLimit}`;
+
+        const result = await getCachedData(cacheKey, async () => {
+          log(LogLevel.INFO, `Fetching OHLCV for 波段过滤器: ${exchange} ${symbol} ${timeframe} limit=${fetchLimit} (${effectiveMarketType})`);
+          const ohlcv = await ex.fetchOHLCV(symbol, timeframe, undefined, fetchLimit);
+          const { timestamps, osc } = computeMaBandOscSeries(ohlcv);
+
+          const sliceStart = Math.max(0, osc.length - safeLimit);
+          const series = timestamps.slice(sliceStart).map((ts: number, idx: number) => [ts, osc[sliceStart + idx]]);
+
+          return {
+            exchange,
+            symbol,
+            marketType: effectiveMarketType,
+            timeframe,
+            limit: safeLimit,
+            note:
+              "Osc is computed from the bundled 均线波段过滤器_加密货币优化版.pine defaults (HA=true, WaveTrend+MFI hybrid). " +
+              "For Binance derivatives, prefer symbols like BTC/USDT:USDT to avoid ambiguity.",
+            data: series
+          };
+        }, safeCacheTtlMs);
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      });
+    } catch (error) {
+      log(LogLevel.ERROR, `Error computing band-filter osc series: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        content: [{
+          type: "text",
+          text: `Error: ${error instanceof Error ? error.message : String(error)}`
+        }],
+        isError: true
+      };
+    }
+  };
+
+  // 波段过滤器 osc 序列（默认 15m / 300 根）
+  server.tool("band-filter-osc-series", "Compute 波段过滤器 osc series (default 15m/300)", bandFilterOscSchema, bandFilterOscHandler);
+
+  // Backward-compatible alias (older name)
+  server.tool("ma-band-osc-series", "[Deprecated] Use band-filter-osc-series", bandFilterOscSchema, bandFilterOscHandler);
   
   // Get exchange market types
   // 获取交易所支持的市场类型
