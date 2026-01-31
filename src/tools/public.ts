@@ -12,6 +12,7 @@ import { getCachedData } from '../utils/cache.js';
 import { rateLimiter } from '../utils/rate-limiter.js';
 import { log, LogLevel } from '../utils/logging.js';
 import { computeMaBandOscSeries } from '../utils/indicators/ma-band-osc.js';
+import { computeEmaMultiSeries } from '../utils/indicators/ema.js';
 
 async function resolveBinanceMarketId(ex: any, symbol: string): Promise<string> {
   const raw = symbol.trim().toUpperCase();
@@ -44,6 +45,27 @@ async function resolveBinanceMarketId(ex: any, symbol: string): Promise<string> 
   }
 
   return raw.replace(/[^A-Z0-9]/g, '');
+}
+
+function normalizeTimeframe(timeframe: string): string {
+  const raw = (timeframe || '').trim().toLowerCase();
+  if (!raw) return raw;
+
+  if (/^\d+[mhdwMy]$/.test(raw)) return raw;
+
+  const cleaned = raw.replace(/\s+/g, '');
+  const match = cleaned.match(/^(\d+)(min|mins|minute|minutes|hour|hours|day|days|week|weeks|month|months|y|year|years)$/);
+  if (!match) return raw;
+
+  const n = match[1];
+  const unit = match[2];
+  if (unit.startsWith('min')) return `${n}m`;
+  if (unit.startsWith('hour')) return `${n}h`;
+  if (unit.startsWith('day')) return `${n}d`;
+  if (unit.startsWith('week')) return `${n}w`;
+  if (unit.startsWith('month')) return `${n}M`;
+  if (unit.startsWith('y') || unit.startsWith('year')) return `${n}y`;
+  return raw;
 }
 
 export function registerPublicTools(server: McpServer) {
@@ -199,6 +221,87 @@ export function registerPublicTools(server: McpServer) {
       });
     } catch (error) {
       log(LogLevel.ERROR, `Error fetching OHLCV data: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        content: [{
+          type: "text",
+          text: `Error: ${error instanceof Error ? error.message : String(error)}`
+        }],
+        isError: true
+      };
+    }
+  });
+
+  server.tool("ema-multi-series", "Compute EMA21/55/100/200 for one or multiple timeframes", {
+    exchange: z.string().describe("Exchange ID (e.g., binance)"),
+    symbol: z.string().describe("Trading pair symbol (e.g., BTC/USDT or BTC/USDT:USDT for derivatives)"),
+    timeframes: z.array(z.string()).optional().default(["1d", "4h", "1h", "15m"]).describe("Timeframes to compute (default: [1d,4h,1h,15m])"),
+    limit: z.number().int().positive().optional().default(300).describe("Number of candles to return per timeframe (default: 300, max: 1000)"),
+    marketType: z.enum(["spot", "future", "swap", "option", "margin"]).optional().describe("Market type (default: from DEFAULT_MARKET_TYPE)"),
+    cacheTtlMs: z.number().int().positive().optional().default(30000).describe("Cache TTL in ms (default: 30000)")
+  }, async ({ exchange, symbol, timeframes, limit, marketType, cacheTtlMs }) => {
+    const periods = [21, 55, 100, 200] as const;
+
+    try {
+      return await rateLimiter.execute(exchange, async () => {
+        const effectiveMarketType = (marketType || getDefaultMarketType()) as any;
+        const ex: any = getExchangeWithMarketType(exchange, effectiveMarketType);
+
+        const safeLimit = Math.min(Math.max(1, limit), 1000);
+        const fetchLimit = Math.min(1000, safeLimit + 700);
+        const safeCacheTtlMs = Math.min(Math.max(1000, cacheTtlMs), 300000);
+
+        const normalizedTimeframes = Array.from(
+          new Set((timeframes || []).map((tf: string) => normalizeTimeframe(tf)).filter(Boolean))
+        );
+        if (normalizedTimeframes.length === 0) normalizedTimeframes.push("1d");
+
+        const dataByTimeframe: Record<string, any> = {};
+        for (const timeframe of normalizedTimeframes) {
+          const cacheKey = `ema_multi:${exchange}:${effectiveMarketType}:${symbol}:${timeframe}:${safeLimit}:${fetchLimit}`;
+          dataByTimeframe[timeframe] = await getCachedData(cacheKey, async () => {
+            log(LogLevel.INFO, `Fetching OHLCV for EMA: ${exchange} ${symbol} ${timeframe} limit=${fetchLimit} (${effectiveMarketType})`);
+            const ohlcv = await ex.fetchOHLCV(symbol, timeframe, undefined, fetchLimit);
+
+            const timestamps: number[] = ohlcv.map((c: any) => c[0]);
+            const closes: number[] = ohlcv.map((c: any) => c[4]);
+            const ema = computeEmaMultiSeries(closes, [...periods]);
+
+            const sliceStart = Math.max(0, timestamps.length - safeLimit);
+            const series = timestamps.slice(sliceStart).map((ts: number, idx: number) => {
+              const i = sliceStart + idx;
+              return [ts, ema[21][i], ema[55][i], ema[100][i], ema[200][i]];
+            });
+
+            return {
+              timeframe,
+              limit: safeLimit,
+              fetchLimit,
+              note: "EMA is computed from close prices. Values are null until enough candles are available for each period.",
+              data: series
+            };
+          }, safeCacheTtlMs);
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              exchange,
+              symbol,
+              marketType: effectiveMarketType,
+              source: "close",
+              periods,
+              timeframes: normalizedTimeframes,
+              limit: safeLimit,
+              fetchLimit,
+              cacheTtlMs: safeCacheTtlMs,
+              data: dataByTimeframe
+            }, null, 2)
+          }]
+        };
+      });
+    } catch (error) {
+      log(LogLevel.ERROR, `Error computing EMA series: ${error instanceof Error ? error.message : String(error)}`);
       return {
         content: [{
           type: "text",

@@ -221,6 +221,7 @@ Here are some example queries you can use with the MCP server:
 - `orderbook-history`: Get basic history stats (requires `orderbook.db`)
 - `orderbook-collector-logs`: Tail recent collector logs (if started via this server)
 - `band-filter-osc-series`: Compute 波段过滤器 osc series (default 15m/300) from the bundled Pine indicator logic
+- `ema-multi-series`: Compute EMA21/55/100/200 series (default timeframes: 1d/4h/1h/15m)
 - `tg-notify`: Send a Telegram message (manual trigger)
 - `get-positions`: Get open positions information
 - `get-open-orders`: Get all open orders
